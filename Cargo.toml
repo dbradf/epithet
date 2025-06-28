@@ -1,0 +1,17 @@
+[package]
+name = "epithet-2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.98"
+clap = { version = "4.5.39", features = ["derive"] }
+dirs = "6.0.0"
+serde = { version = "1.0.219", features = ["derive"] }
+shellexpand = "3.1.1"
+toml = "0.8.23"
+
+[profile.release]
+opt-level = 3
+strip = "debuginfo"
+lto = "thin"
