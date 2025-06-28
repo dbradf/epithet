@@ -1,9 +1,8 @@
 [global_expansions]
 app = "@monologue/graphite-app"
-cli = "@monologue/graphite-cli"
+cli = "@withgraphite/graphite-cli"
 
 [y]
-command = "yarn root:buildclideps"
 sub_aliases = [
     { name = "a", command = "yarn app" },
     { name = "b1", command = "yarn workspace {0} build" },
@@ -12,5 +11,9 @@ sub_aliases = [
     { name = "bs", and = [
         "yarn buildserverdeps",
         "yarn buildserver",
+    ] },
+    { name = "cli", or = [
+        "yarn root:buildclideps",
+        "yarn workspace @cli build",
     ] },
 ]

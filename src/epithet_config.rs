@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    process::{exit, Command},
+    process::{exit, Command, ExitStatus},
 };
 
 use anyhow::Result;
@@ -10,7 +10,7 @@ use toml::Table;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EpithetConfig {
-    pub global_expansions: Option<Table>,
+    pub global_expansions: Option<HashMap<String, String>>,
 
     #[serde(flatten)]
     pub aliases: Option<HashMap<String, Alias>>,
@@ -23,54 +23,17 @@ impl EpithetConfig {
         Ok(toml::from_str(&config_contents)?)
     }
 
-    pub fn execute(&self, alias: &str) -> Result<()> {
+    pub fn execute(&self, alias: &str, args: &str) -> Result<()> {
         if let Some(alias_list) = &self.aliases {
             if let Some(alias) = alias_list.get(alias) {
-                alias.execute()?;
+                let global_expansions = self.global_expansions.clone().unwrap_or_default();
+                alias.execute(args, &global_expansions)?;
+            } else {
+                anyhow::bail!("Alias not found: {}", alias);
             }
         }
 
         Ok(())
-    }
-
-    pub fn fake() -> Self {
-        Self {
-            global_expansions: None,
-            aliases: Some(HashMap::from([
-                (
-                    "t".to_string(),
-                    Alias {
-                        command: Some(Execution::Command("echo hello world".to_string())),
-                        sub_aliases: None,
-                    },
-                ),
-                (
-                    "y".to_string(),
-                    Alias {
-                        command: Some(Execution::Command("yarn".to_string())),
-                        sub_aliases: None,
-                    },
-                ),
-                (
-                    "a".to_string(),
-                    Alias {
-                        command: None,
-                        sub_aliases: Some(vec![
-                            SubAlias {
-                                name: "test".to_string(),
-                                execution: Execution::Command("yarn app".to_string()),
-                            },
-                            SubAlias {
-                                name: "b1".to_string(),
-                                execution: Execution::And(vec![
-                                    "yarn workspace {0} build".to_string()
-                                ]),
-                            },
-                        ]),
-                    },
-                ),
-            ])),
-        }
     }
 }
 
@@ -79,16 +42,78 @@ pub struct Alias {
     #[serde(flatten)]
     pub command: Option<Execution>,
     pub sub_aliases: Option<Vec<SubAlias>>,
+    pub expansions: Option<HashMap<String, String>>,
 }
 
 impl Alias {
-    pub fn execute(&self) -> Result<()> {
+    pub fn execute(&self, args: &str, global_expansions: &HashMap<String, String>) -> Result<()> {
         if let Some(command) = &self.command {
-            command.execute()?;
+            return command.execute(args, &self.get_expansions(global_expansions));
+        }
+
+        let split_arguments = args.split_whitespace().collect::<Vec<&str>>();
+        let sub_command = split_arguments.first().expect("No sub command provided");
+        let rest = split_arguments[1..].join(" ");
+
+        if let Some(sub_aliases) = &self.sub_aliases {
+            for sub_alias in sub_aliases {
+                if sub_alias.name == *sub_command {
+                    return sub_alias
+                        .execution
+                        .execute(&rest, &self.get_expansions(global_expansions));
+                }
+            }
         }
 
         Ok(())
     }
+
+    fn get_expansions(
+        &self,
+        global_expansions: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut expansions = global_expansions.clone();
+
+        if let Some(sub_expansions) = &self.expansions {
+            for (key, value) in sub_expansions {
+                expansions.insert(key.clone(), value.clone());
+            }
+        }
+
+        expansions
+    }
+}
+
+fn tokenize_string(string: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current_token = String::new();
+    let mut in_quotes = false;
+    let mut in_escape = false;
+
+    string.chars().for_each(|ch| match ch {
+        '\\' if !in_escape => {
+            in_escape = true;
+        }
+        '"' if !in_escape => {
+            in_quotes = !in_quotes;
+        }
+        ch if ch.is_whitespace() && !in_quotes && !in_escape => {
+            if !current_token.is_empty() {
+                tokens.push(current_token.clone());
+                current_token.clear();
+            }
+        }
+        _ => {
+            current_token.push(ch);
+            in_escape = false;
+        }
+    });
+
+    if !current_token.is_empty() {
+        tokens.push(current_token);
+    }
+
+    tokens
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -109,24 +134,98 @@ pub enum Execution {
 }
 
 impl Execution {
-    pub fn execute(&self) -> Result<()> {
+    pub fn execute(&self, args: &str, expansions: &HashMap<String, String>) -> Result<()> {
         match self {
             Execution::Command(command) => {
-                dbg!(&command);
-                let cmd = command.split(" ").collect::<Vec<&str>>();
-
-                let result = Command::new(cmd[0])
-                    .args(&cmd[1..])
-                    .status()
-                    .map_err(|e| anyhow::anyhow!("Failed to execute command: {}", e))?;
+                let tokens = self.get_arguments(command, args, expansions);
+                let result = execute_command(&tokens)?;
                 if !result.success() {
                     exit(result.code().unwrap_or(1));
                 }
                 Ok(())
             }
-            Execution::And(items) => todo!(),
-            Execution::Or(items) => todo!(),
+            Execution::And(items) => {
+                for item in items {
+                    let tokens = self.get_arguments(item, args, expansions);
+                    let result = execute_command(&tokens)?;
+                    if !result.success() {
+                        exit(result.code().unwrap_or(1));
+                    }
+                }
+                Ok(())
+            }
+            Execution::Or(items) => {
+                let mut last_result = None;
+                for item in items {
+                    let tokens = self.get_arguments(item, args, expansions);
+                    let result = execute_command(&tokens)?;
+                    if result.success() {
+                        return Ok(());
+                    }
+                    last_result = Some(result);
+                }
+                exit(
+                    last_result
+                        .map(|r| r.code())
+                        .unwrap_or(Some(1))
+                        .unwrap_or(1),
+                );
+            }
             Execution::Pipeline(items) => todo!(),
         }
+    }
+
+    fn get_arguments(
+        &self,
+        command: &str,
+        arguments: &str,
+        expansions: &HashMap<String, String>,
+    ) -> Vec<String> {
+        let tokens = self.tokenize_arguments(command, arguments);
+        tokens
+            .into_iter()
+            .map(|token| {
+                dbg!(&token);
+                dbg!(&expansions);
+                if token.starts_with("@") {
+                    let key = token.trim_start_matches("@").to_string();
+                    expansions.get(&key).unwrap_or(&token).to_string()
+                } else {
+                    token
+                }
+            })
+            .collect()
+    }
+
+    fn tokenize_arguments(&self, command: &str, arguments: &str) -> Vec<String> {
+        let mut tokens = tokenize_string(command);
+        tokens.extend(tokenize_string(arguments));
+        tokens
+    }
+}
+
+fn execute_command(tokens: &[String]) -> Result<ExitStatus> {
+    let cmd = tokens.first().expect("No command provided");
+
+    dbg!(&tokens);
+
+    Command::new(cmd)
+        .args(&tokens[1..])
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to execute command: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case("echo \"Hello, world!\"", vec!["echo", "Hello, world!"])]
+    #[case("echo Hello, world!", vec!["echo", "Hello,", "world!"])]
+    #[case("echo \"Hello, \\\"world!\\\"\"", vec!["echo", "Hello, \"world!\""])]
+    fn test_tokenize_string(#[case] input: &str, #[case] expected: Vec<&str>) {
+        assert_eq!(tokenize_string(input), expected);
     }
 }

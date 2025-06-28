@@ -4,12 +4,10 @@ use epithet_2::epithet_config::EpithetConfig;
 
 fn main() {
     let config = EpithetConfig::read(&args().nth(1).unwrap()).unwrap();
+    let args = args().skip(2).collect::<Vec<String>>();
 
     dbg!(&config);
     println!("--------------------------------");
-    let fake = EpithetConfig::fake();
-    println!("{}", toml::to_string_pretty(&fake).unwrap());
-    println!("--------------------------------");
 
-    config.execute("y").unwrap();
+    config.execute("y", &args.join(" ")).unwrap();
 }
