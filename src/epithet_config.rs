@@ -1,11 +1,24 @@
+use core::fmt;
 use std::{
     collections::HashMap,
+    fmt::Display,
     fs,
+    path::{Path, PathBuf},
     process::{exit, Command, ExitStatus},
 };
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+const BASE_NAME: &str = "epithet";
+const CONFIG_NAME: &str = "epithet-new.toml";
+
+pub fn get_config_path() -> PathBuf {
+    dirs::config_local_dir()
+        .unwrap_or(dirs::home_dir().unwrap().join(".config"))
+        .join(BASE_NAME)
+        .join(CONFIG_NAME)
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EpithetConfig {
@@ -16,20 +29,42 @@ pub struct EpithetConfig {
 }
 
 impl EpithetConfig {
-    pub fn read(path: &str) -> Result<Self> {
+    pub fn new() -> Result<Self> {
+        let config_path = get_config_path();
+
+        Self::read(&config_path)
+    }
+
+    fn read(path: &Path) -> Result<Self> {
         let config_contents = fs::read_to_string(path)?;
 
         Ok(toml::from_str(&config_contents)?)
     }
 
-    pub fn execute(&self, alias: &str, args: &[String]) -> Result<()> {
+    pub fn lookup_alias(&self, alias: &str, args: &[String]) -> Option<String> {
+        if let Some(alias) = self.find_alias(alias) {
+            return alias.lookup(args);
+        }
+
+        None
+    }
+
+    fn find_alias(&self, alias: &str) -> Option<&Alias> {
         if let Some(alias_list) = &self.aliases {
             if let Some(alias) = alias_list.get(alias) {
-                let global_expansions = self.global_expansions.clone().unwrap_or_default();
-                alias.execute(args, &global_expansions)?;
-            } else {
-                anyhow::bail!("Alias not found: {}", alias);
+                return Some(alias);
             }
+        }
+
+        None
+    }
+
+    pub fn execute(&self, alias: &str, args: &[String]) -> Result<()> {
+        if let Some(alias) = self.find_alias(alias) {
+            let global_expansions = self.global_expansions.clone().unwrap_or_default();
+            alias.execute(args, &global_expansions)?;
+        } else {
+            anyhow::bail!("Alias not found: {}", alias);
         }
 
         Ok(())
@@ -41,7 +76,13 @@ pub struct Alias {
     #[serde(flatten)]
     pub command: Option<Execution>,
     pub sub_aliases: Option<Vec<SubAlias>>,
-    pub expansions: Option<HashMap<String, String>>,
+    pub expansions: Option<Vec<Expansion>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Expansion {
+    pub key: String,
+    pub value: String,
 }
 
 impl Alias {
@@ -70,6 +111,24 @@ impl Alias {
         Ok(())
     }
 
+    pub fn lookup(&self, args: &[String]) -> Option<String> {
+        if let Some(command) = &self.command {
+            return Some(format!("{}", command));
+        }
+
+        let sub_command = args.first().expect("No sub command provided");
+
+        if let Some(sub_aliases) = &self.sub_aliases {
+            for sub_alias in sub_aliases {
+                if sub_alias.name == *sub_command {
+                    return Some(format!("{}", sub_alias.execution));
+                }
+            }
+        }
+
+        None
+    }
+
     fn get_expansions(
         &self,
         global_expansions: &HashMap<String, String>,
@@ -77,8 +136,8 @@ impl Alias {
         let mut expansions = global_expansions.clone();
 
         if let Some(sub_expansions) = &self.expansions {
-            for (key, value) in sub_expansions {
-                expansions.insert(key.clone(), value.clone());
+            for expansion in sub_expansions {
+                expansions.insert(expansion.key.clone(), expansion.value.clone());
             }
         }
 
@@ -223,6 +282,17 @@ impl Execution {
         tokens.extend(arguments_copy.into_iter().flatten());
 
         tokens
+    }
+}
+
+impl Display for Execution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Execution::Command(command) => write!(f, "{}", command),
+            Execution::And(items) => write!(f, "{}", items.join(" && ")),
+            Execution::Or(items) => write!(f, "{}", items.join(" || ")),
+            Execution::Pipeline(items) => write!(f, "{}", items.join(" | ")),
+        }
     }
 }
 
