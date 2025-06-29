@@ -297,9 +297,7 @@ impl Display for Execution {
 }
 
 fn execute_command(tokens: &[String]) -> Result<ExitStatus> {
-    let cmd = tokens.first().expect("No command provided");
-
-    dbg!(&tokens);
+    let cmd = shellexpand::tilde(tokens.first().expect("No command provided")).to_string();
 
     Command::new(cmd)
         .args(&tokens[1..])

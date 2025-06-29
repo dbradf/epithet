@@ -1,5 +1,8 @@
 use anyhow::Result;
-use std::{env::args, path::Path};
+use std::{
+    os::unix::fs,
+    path::{Path, PathBuf},
+};
 
 use clap::Parser;
 use epithet_2::epithet_config::{get_config_path, EpithetConfig};
@@ -50,7 +53,7 @@ fn main() {
 fn epithet_command(cli: &Cli, config: &EpithetConfig) -> Result<()> {
     match &cli.command {
         Commands::Install { force } => {
-            println!("Installing...");
+            install_aliases(*force, config)?;
         }
         Commands::Lookup { alias, args } => {
             if let Some(alias) = config.lookup_alias(alias, args) {
@@ -66,5 +69,47 @@ fn epithet_command(cli: &Cli, config: &EpithetConfig) -> Result<()> {
 
 fn alias_execution(command: &str, args: &[String], config: &EpithetConfig) -> Result<()> {
     config.execute(command, args)?;
+    Ok(())
+}
+
+fn install_aliases(force: bool, config: &EpithetConfig) -> Result<()> {
+    let executable = std::env::current_exe()?;
+    let bin_path = PathBuf::from(shellexpand::tilde("~/.local/epithet/bin").to_string());
+
+    if !bin_path.exists() {
+        eprintln!("Creating directory: {}", bin_path.display());
+        std::fs::create_dir_all(&bin_path)?;
+    }
+
+    let binary_path = executable.canonicalize()?;
+
+    eprintln!("Installing aliases to: {}", bin_path.display());
+    eprintln!("export PATH=$PATH:{}", bin_path.display());
+
+    if let Some(aliases) = &config.aliases {
+        for alias in aliases.keys() {
+            let alias_path = bin_path.join(alias);
+            if alias_path.exists() {
+                if force {
+                    eprintln!("Removing existing alias: {}", alias_path.display());
+                    std::fs::remove_file(&alias_path)?;
+                } else {
+                    eprintln!(
+                        "Alias already exists (run with --force to overwrite): {}",
+                        alias_path.display()
+                    );
+                    continue;
+                }
+            }
+
+            eprintln!(
+                "Creating symlink: {} -> {}",
+                binary_path.display(),
+                alias_path.display()
+            );
+            fs::symlink(&binary_path, &alias_path)?;
+        }
+    }
+
     Ok(())
 }
