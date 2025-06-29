@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use toml::Table;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EpithetConfig {
@@ -23,7 +22,7 @@ impl EpithetConfig {
         Ok(toml::from_str(&config_contents)?)
     }
 
-    pub fn execute(&self, alias: &str, args: &str) -> Result<()> {
+    pub fn execute(&self, alias: &str, args: &[String]) -> Result<()> {
         if let Some(alias_list) = &self.aliases {
             if let Some(alias) = alias_list.get(alias) {
                 let global_expansions = self.global_expansions.clone().unwrap_or_default();
@@ -46,21 +45,24 @@ pub struct Alias {
 }
 
 impl Alias {
-    pub fn execute(&self, args: &str, global_expansions: &HashMap<String, String>) -> Result<()> {
+    pub fn execute(
+        &self,
+        args: &[String],
+        global_expansions: &HashMap<String, String>,
+    ) -> Result<()> {
         if let Some(command) = &self.command {
             return command.execute(args, &self.get_expansions(global_expansions));
         }
 
-        let split_arguments = args.split_whitespace().collect::<Vec<&str>>();
-        let sub_command = split_arguments.first().expect("No sub command provided");
-        let rest = split_arguments[1..].join(" ");
+        let sub_command = args.first().expect("No sub command provided");
+        let rest = &args[1..];
 
         if let Some(sub_aliases) = &self.sub_aliases {
             for sub_alias in sub_aliases {
                 if sub_alias.name == *sub_command {
                     return sub_alias
                         .execution
-                        .execute(&rest, &self.get_expansions(global_expansions));
+                        .execute(rest, &self.get_expansions(global_expansions));
                 }
             }
         }
@@ -134,7 +136,7 @@ pub enum Execution {
 }
 
 impl Execution {
-    pub fn execute(&self, args: &str, expansions: &HashMap<String, String>) -> Result<()> {
+    pub fn execute(&self, args: &[String], expansions: &HashMap<String, String>) -> Result<()> {
         match self {
             Execution::Command(command) => {
                 let tokens = self.get_arguments(command, args, expansions);
@@ -178,28 +180,48 @@ impl Execution {
     fn get_arguments(
         &self,
         command: &str,
-        arguments: &str,
+        arguments: &[String],
         expansions: &HashMap<String, String>,
     ) -> Vec<String> {
-        let tokens = self.tokenize_arguments(command, arguments);
-        tokens
-            .into_iter()
-            .map(|token| {
-                dbg!(&token);
-                dbg!(&expansions);
-                if token.starts_with("@") {
-                    let key = token.trim_start_matches("@").to_string();
-                    expansions.get(&key).unwrap_or(&token).to_string()
+        let argument_tokens: Vec<String> = arguments
+            .iter()
+            .flat_map(|arg| {
+                if arg.starts_with("@") {
+                    let key = arg.trim_start_matches("@").to_string();
+                    let value = expansions.get(&key).unwrap_or(arg).to_string();
+                    tokenize_string(&value)
                 } else {
-                    token
+                    vec![arg.to_string()]
                 }
             })
-            .collect()
+            .collect();
+
+        self.expand_command(command, &argument_tokens)
     }
 
-    fn tokenize_arguments(&self, command: &str, arguments: &str) -> Vec<String> {
-        let mut tokens = tokenize_string(command);
-        tokens.extend(tokenize_string(arguments));
+    fn expand_command(&self, command: &str, arguments: &[String]) -> Vec<String> {
+        let mut arguments_copy: Vec<Option<String>> =
+            arguments.iter().map(|a| Some(a.to_string())).collect();
+        let command_tokens = tokenize_string(command);
+
+        let mut tokens: Vec<String> = command_tokens
+            .into_iter()
+            .map(|token| {
+                if token.starts_with("{") && token.ends_with("}") {
+                    if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
+                        if position < &arguments.len() {
+                            arguments_copy[*position] = None;
+                            return arguments[*position].clone();
+                        }
+                    }
+                }
+
+                token.to_string()
+            })
+            .collect();
+
+        tokens.extend(arguments_copy.into_iter().flatten());
+
         tokens
     }
 }

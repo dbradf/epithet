@@ -9,5 +9,5 @@ fn main() {
     dbg!(&config);
     println!("--------------------------------");
 
-    config.execute("y", &args.join(" ")).unwrap();
+    config.execute("y", &args).unwrap();
 }
