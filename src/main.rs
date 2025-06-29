@@ -5,7 +5,7 @@ use std::{
 };
 
 use clap::Parser;
-use epithet_2::epithet_config::{get_config_path, EpithetConfig};
+use epithet::epithet_config::{get_config_path, EpithetConfig};
 
 const BUILD_NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");

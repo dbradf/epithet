@@ -147,7 +147,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "epithet-2"
+name = "epithet"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -232,7 +232,7 @@ impl Execution {
                         .unwrap_or(1),
                 );
             }
-            Execution::Pipeline(items) => todo!(),
+            Execution::Pipeline(_items) => todo!(),
         }
     }
 
