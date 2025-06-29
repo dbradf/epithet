@@ -11,7 +11,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 const BASE_NAME: &str = "epithet";
-const CONFIG_NAME: &str = "epithet-new.toml";
+const CONFIG_NAME: &str = "epithet.toml";
 
 pub fn get_config_path() -> PathBuf {
     dirs::config_local_dir()
