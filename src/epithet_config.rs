@@ -91,39 +91,39 @@ impl Alias {
         args: &[String],
         global_expansions: &HashMap<String, String>,
     ) -> Result<()> {
-        if let Some(command) = &self.command {
-            return command.execute(args, &self.get_expansions(global_expansions));
-        }
-
-        let sub_command = args.first().expect("No sub command provided");
-        let rest = &args[1..];
-
-        if let Some(sub_aliases) = &self.sub_aliases {
-            for sub_alias in sub_aliases {
-                if sub_alias.name == *sub_command {
-                    return sub_alias
-                        .execution
-                        .execute(rest, &self.get_expansions(global_expansions));
+        if let Some(sub_command) = args.first() {
+            if let Some(sub_aliases) = &self.sub_aliases {
+                for sub_alias in sub_aliases {
+                    if sub_alias.name == *sub_command {
+                        let rest = &args[1..];
+                        return sub_alias
+                            .execution
+                            .execute(rest, &self.get_expansions(global_expansions));
+                    }
                 }
             }
+        }
+
+        if let Some(command) = &self.command {
+            return command.execute(args, &self.get_expansions(global_expansions));
         }
 
         Ok(())
     }
 
     pub fn lookup(&self, args: &[String]) -> Option<String> {
-        if let Some(command) = &self.command {
-            return Some(format!("{}", command));
-        }
-
-        let sub_command = args.first().expect("No sub command provided");
-
-        if let Some(sub_aliases) = &self.sub_aliases {
-            for sub_alias in sub_aliases {
-                if sub_alias.name == *sub_command {
-                    return Some(format!("{}", sub_alias.execution));
+        if let Some(sub_command) = args.first() {
+            if let Some(sub_aliases) = &self.sub_aliases {
+                for sub_alias in sub_aliases {
+                    if sub_alias.name == *sub_command {
+                        return Some(format!("{}", sub_alias.execution));
+                    }
                 }
             }
+        }
+
+        if let Some(command) = &self.command {
+            return Some(format!("{}", command));
         }
 
         None
