@@ -7,7 +7,7 @@ use std::{
     process::{exit, Command, ExitStatus},
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 const BASE_NAME: &str = "epithet";
@@ -108,7 +108,7 @@ impl Alias {
             return command.execute(args, &self.get_expansions(global_expansions));
         }
 
-        Ok(())
+        bail!("No sub command or command found for alias");
     }
 
     pub fn lookup(&self, args: &[String]) -> Option<String> {
