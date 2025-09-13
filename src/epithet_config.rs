@@ -50,19 +50,13 @@ impl EpithetConfig {
     }
 
     fn find_alias(&self, alias: &str) -> Option<&Alias> {
-        if let Some(alias_list) = &self.aliases {
-            if let Some(alias) = alias_list.get(alias) {
-                return Some(alias);
-            }
-        }
-
-        None
+        self.aliases.as_ref()?.get(alias)
     }
 
     pub fn execute(&self, alias: &str, args: &[String]) -> Result<()> {
         if let Some(alias) = self.find_alias(alias) {
-            let global_expansions = self.global_expansions.clone().unwrap_or_default();
-            alias.execute(args, &global_expansions)?;
+            let mut global_expansions = self.global_expansions.clone().unwrap_or_default();
+            alias.execute(args, &mut global_expansions)?;
         } else {
             anyhow::bail!("Alias not found: {}", alias);
         }
@@ -89,7 +83,7 @@ impl Alias {
     pub fn execute(
         &self,
         args: &[String],
-        global_expansions: &HashMap<String, String>,
+        global_expansions: &mut HashMap<String, String>,
     ) -> Result<()> {
         if let Some(sub_command) = args.first() {
             if let Some(sub_aliases) = &self.sub_aliases {
@@ -98,14 +92,14 @@ impl Alias {
                         let rest = &args[1..];
                         return sub_alias
                             .execution
-                            .execute(rest, &self.get_expansions(global_expansions));
+                            .execute(rest, self.get_expansions(global_expansions));
                     }
                 }
             }
         }
 
         if let Some(command) = &self.command {
-            return command.execute(args, &self.get_expansions(global_expansions));
+            return command.execute(args, self.get_expansions(global_expansions));
         }
 
         bail!("No sub command or command found for alias");
@@ -123,18 +117,16 @@ impl Alias {
         }
 
         if let Some(command) = &self.command {
-            return Some(format!("{}", command));
+            return Some(format!("{command}"));
         }
 
         None
     }
 
-    fn get_expansions(
+    fn get_expansions<'a>(
         &self,
-        global_expansions: &HashMap<String, String>,
-    ) -> HashMap<String, String> {
-        let mut expansions = global_expansions.clone();
-
+        expansions: &'a mut HashMap<String, String>,
+    ) -> &'a HashMap<String, String> {
         if let Some(sub_expansions) = &self.expansions {
             for expansion in sub_expansions {
                 expansions.insert(expansion.key.clone(), expansion.value.clone());
@@ -288,7 +280,7 @@ impl Execution {
 impl Display for Execution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Execution::Command(command) => write!(f, "{}", command),
+            Execution::Command(command) => write!(f, "{command}"),
             Execution::And(items) => write!(f, "{}", items.join(" && ")),
             Execution::Or(items) => write!(f, "{}", items.join(" || ")),
             Execution::Pipeline(items) => write!(f, "{}", items.join(" | ")),

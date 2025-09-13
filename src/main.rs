@@ -45,7 +45,7 @@ fn main() {
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
@@ -57,9 +57,9 @@ fn epithet_command(cli: &Cli, config: &EpithetConfig) -> Result<()> {
         }
         Commands::Lookup { alias, args } => {
             if let Some(alias) = config.lookup_alias(alias, args) {
-                println!("{}", alias);
+                println!("{alias}");
             } else {
-                println!("Alias not found: {}", alias);
+                println!("Alias not found: {alias}");
             }
         }
     }
