@@ -22,10 +22,11 @@ pub fn get_config_path() -> PathBuf {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EpithetConfig {
-    pub global_expansions: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub global_expansions: HashMap<String, String>,
 
-    #[serde(flatten)]
-    pub aliases: Option<HashMap<String, Alias>>,
+    #[serde(flatten, default)]
+    pub aliases: HashMap<String, Alias>,
 }
 
 impl EpithetConfig {
@@ -50,12 +51,12 @@ impl EpithetConfig {
     }
 
     fn find_alias(&self, alias: &str) -> Option<&Alias> {
-        self.aliases.as_ref()?.get(alias)
+        self.aliases.get(alias)
     }
 
     pub fn execute(&self, alias: &str, args: &[String]) -> Result<()> {
         if let Some(alias) = self.find_alias(alias) {
-            let mut global_expansions = self.global_expansions.clone().unwrap_or_default();
+            let mut global_expansions = self.global_expansions.clone();
             alias.execute(args, &mut global_expansions)?;
         } else {
             anyhow::bail!("Alias not found: {}", alias);
@@ -110,14 +111,14 @@ impl Alias {
             if let Some(sub_aliases) = &self.sub_aliases {
                 for sub_alias in sub_aliases {
                     if sub_alias.name == *sub_command {
-                        return Some(format!("{}", sub_alias.execution));
+                        return Some(sub_alias.execution.to_string());
                     }
                 }
             }
         }
 
         if let Some(command) = &self.command {
-            return Some(format!("{command}"));
+            return Some(command.to_string());
         }
 
         None
@@ -258,7 +259,7 @@ impl Execution {
         let mut tokens: Vec<String> = command_tokens
             .into_iter()
             .map(|token| {
-                if token.starts_with("{") && token.ends_with("}") {
+                if token.starts_with('{') && token.ends_with('}') {
                     if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
                         if position < &arguments.len() {
                             arguments_copy[*position] = None;

@@ -86,29 +86,27 @@ fn install_aliases(force: bool, config: &EpithetConfig) -> Result<()> {
     eprintln!("Installing aliases to: {}", bin_path.display());
     eprintln!("export PATH=$PATH:{}", bin_path.display());
 
-    if let Some(aliases) = &config.aliases {
-        for alias in aliases.keys() {
-            let alias_path = bin_path.join(alias);
-            if alias_path.exists() {
-                if force {
-                    eprintln!("Removing existing alias: {}", alias_path.display());
-                    std::fs::remove_file(&alias_path)?;
-                } else {
-                    eprintln!(
-                        "Alias already exists (run with --force to overwrite): {}",
-                        alias_path.display()
-                    );
-                    continue;
-                }
+    for alias in config.aliases.keys() {
+        let alias_path = bin_path.join(alias);
+        if alias_path.exists() {
+            if force {
+                eprintln!("Removing existing alias: {}", alias_path.display());
+                std::fs::remove_file(&alias_path)?;
+            } else {
+                eprintln!(
+                    "Alias already exists (run with --force to overwrite): {}",
+                    alias_path.display()
+                );
+                continue;
             }
-
-            eprintln!(
-                "Creating symlink: {} -> {}",
-                binary_path.display(),
-                alias_path.display()
-            );
-            fs::symlink(&binary_path, &alias_path)?;
         }
+
+        eprintln!(
+            "Creating symlink: {} -> {}",
+            binary_path.display(),
+            alias_path.display()
+        );
+        fs::symlink(&binary_path, &alias_path)?;
     }
 
     Ok(())
