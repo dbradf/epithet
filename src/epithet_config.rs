@@ -107,21 +107,24 @@ impl Alias {
     }
 
     pub fn lookup(&self, args: &[String]) -> Option<String> {
+        let execution = self.lookup_execution(args);
+        execution.map(|e| e.to_string())
+    }
+
+    fn lookup_execution<'a>(&'a self, args: &[String]) -> Option<&'a Execution> {
         if let Some(sub_command) = args.first() {
-            if let Some(sub_aliases) = &self.sub_aliases {
-                for sub_alias in sub_aliases {
-                    if sub_alias.name == *sub_command {
-                        return Some(sub_alias.execution.to_string());
-                    }
-                }
+            let sub_command = self
+                .sub_aliases
+                .as_ref()
+                .and_then(|sub_aliases| sub_aliases.iter().find(|s| s.name == *sub_command))
+                .map(|s| &s.execution);
+
+            if sub_command.is_some() {
+                return sub_command;
             }
         }
 
-        if let Some(command) = &self.command {
-            return Some(command.to_string());
-        }
-
-        None
+        self.command.as_ref()
     }
 
     fn get_expansions<'a>(
