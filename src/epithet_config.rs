@@ -1,5 +1,6 @@
 use core::fmt;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::Display,
     fs,
@@ -232,12 +233,12 @@ impl Execution {
         }
     }
 
-    fn get_arguments(
+    fn get_arguments<'a>(
         &self,
-        command: &str,
-        arguments: &[String],
-        expansions: &HashMap<String, String>,
-    ) -> Vec<String> {
+        command: &'a str,
+        arguments: &'a [String],
+        expansions: &'a HashMap<String, String>,
+    ) -> Vec<Cow<'a, str>> {
         let argument_tokens: Vec<String> = arguments
             .iter()
             .flat_map(|arg| {
@@ -251,34 +252,39 @@ impl Execution {
             })
             .collect();
 
-        self.expand_command(command, &argument_tokens)
+        expand_command(command, argument_tokens)
     }
+}
 
-    fn expand_command(&self, command: &str, arguments: &[String]) -> Vec<String> {
-        let mut arguments_copy: Vec<Option<String>> =
-            arguments.iter().map(|a| Some(a.to_string())).collect();
-        let command_tokens = tokenize_string(command);
+fn expand_command<'a>(command: &'a str, arguments: Vec<String>) -> Vec<Cow<'a, str>> {
+    let mut used_arguments = vec![false; arguments.len()];
+    let command_tokens = tokenize_string(command);
 
-        let mut tokens: Vec<String> = command_tokens
-            .into_iter()
-            .map(|token| {
-                if token.starts_with('{') && token.ends_with('}') {
-                    if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
-                        if position < &arguments.len() {
-                            arguments_copy[*position] = None;
-                            return arguments[*position].clone();
-                        }
+    let mut tokens: Vec<Cow<str>> = command_tokens
+        .into_iter()
+        .map(|token| {
+            if token.starts_with('{') && token.ends_with('}') {
+                if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
+                    if position < &arguments.len() {
+                        used_arguments[*position] = true;
+                        return Cow::Owned(arguments[*position].clone());
                     }
                 }
+            }
 
-                token.to_string()
-            })
-            .collect();
+            Cow::Owned(token)
+        })
+        .collect();
 
-        tokens.extend(arguments_copy.into_iter().flatten());
+    tokens.extend(arguments.iter().enumerate().filter_map(|(i, arg)| {
+        if !used_arguments[i] {
+            Some(Cow::Owned(arg.clone()))
+        } else {
+            None
+        }
+    }));
 
-        tokens
-    }
+    tokens
 }
 
 impl Display for Execution {
@@ -292,11 +298,16 @@ impl Display for Execution {
     }
 }
 
-fn execute_command(tokens: &[String]) -> Result<ExitStatus> {
+fn execute_command(tokens: &[Cow<str>]) -> Result<ExitStatus> {
     let cmd = shellexpand::tilde(tokens.first().expect("No command provided")).to_string();
 
     Command::new(cmd)
-        .args(&tokens[1..])
+        .args(
+            tokens[1..]
+                .iter()
+                .map(|t| t.as_ref())
+                .collect::<Vec<&str>>(),
+        )
         .status()
         .map_err(|e| anyhow::anyhow!("Failed to execute command: {}", e))
 }
