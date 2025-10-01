@@ -256,8 +256,7 @@ impl Execution {
 }
 
 fn expand_command(command: &str, arguments: &[String]) -> Vec<String> {
-    let mut arguments_copy: Vec<Option<String>> =
-        arguments.iter().map(|a| Some(a.to_string())).collect();
+    let mut used_arguments = vec![false; arguments.len()];
     let command_tokens = tokenize_string(command);
 
     let mut tokens: Vec<String> = command_tokens
@@ -266,7 +265,7 @@ fn expand_command(command: &str, arguments: &[String]) -> Vec<String> {
             if token.starts_with('{') && token.ends_with('}') {
                 if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
                     if position < &arguments.len() {
-                        arguments_copy[*position] = None;
+                        used_arguments[*position] = true;
                         return arguments[*position].clone();
                     }
                 }
@@ -276,7 +275,13 @@ fn expand_command(command: &str, arguments: &[String]) -> Vec<String> {
         })
         .collect();
 
-    tokens.extend(arguments_copy.into_iter().flatten());
+    tokens.extend(arguments.iter().enumerate().filter_map(|(i, arg)| {
+        if !used_arguments[i] {
+            Some(arg.clone())
+        } else {
+            None
+        }
+    }));
 
     tokens
 }
