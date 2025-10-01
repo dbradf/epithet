@@ -251,34 +251,34 @@ impl Execution {
             })
             .collect();
 
-        self.expand_command(command, &argument_tokens)
+        expand_command(command, &argument_tokens)
     }
+}
 
-    fn expand_command(&self, command: &str, arguments: &[String]) -> Vec<String> {
-        let mut arguments_copy: Vec<Option<String>> =
-            arguments.iter().map(|a| Some(a.to_string())).collect();
-        let command_tokens = tokenize_string(command);
+fn expand_command(command: &str, arguments: &[String]) -> Vec<String> {
+    let mut arguments_copy: Vec<Option<String>> =
+        arguments.iter().map(|a| Some(a.to_string())).collect();
+    let command_tokens = tokenize_string(command);
 
-        let mut tokens: Vec<String> = command_tokens
-            .into_iter()
-            .map(|token| {
-                if token.starts_with('{') && token.ends_with('}') {
-                    if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
-                        if position < &arguments.len() {
-                            arguments_copy[*position] = None;
-                            return arguments[*position].clone();
-                        }
+    let mut tokens: Vec<String> = command_tokens
+        .into_iter()
+        .map(|token| {
+            if token.starts_with('{') && token.ends_with('}') {
+                if let Ok(position) = &token[1..token.len() - 1].parse::<usize>() {
+                    if position < &arguments.len() {
+                        arguments_copy[*position] = None;
+                        return arguments[*position].clone();
                     }
                 }
+            }
 
-                token.to_string()
-            })
-            .collect();
+            token.to_string()
+        })
+        .collect();
 
-        tokens.extend(arguments_copy.into_iter().flatten());
+    tokens.extend(arguments_copy.into_iter().flatten());
 
-        tokens
-    }
+    tokens
 }
 
 impl Display for Execution {
